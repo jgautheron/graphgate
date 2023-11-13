@@ -297,6 +297,7 @@ impl ComposedSchema {
                                 }
 
                                 if meta_type.fields.contains_key(&field.node.name.node) {
+                                    println!("{:#?}", field);
                                     return Err(CombineError::FieldConflicted {
                                         type_name: type_definition.node.name.node.to_string(),
                                         field_name: field.node.name.node.to_string(),

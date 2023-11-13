@@ -17,7 +17,16 @@ use tokio::{
 use value::ConstValue;
 use warp::http::{HeaderMap, Response as HttpResponse, StatusCode};
 
-use crate::{executor::Executor, fetcher::HttpFetcher, service_route::ServiceRouteTable};
+use crate::{
+    executor::Executor, fetcher::HttpFetcher, query::ProcessedQuery,
+    service_route::ServiceRouteTable,
+};
+
+#[derive(Clone, Debug, Default)]
+pub struct SharedConfig {
+    is_introspection_enabled: bool,
+    receive_headers: Vec<String>,
+}
 
 enum Command {
     Change(ServiceRouteTable),
@@ -30,21 +39,22 @@ struct Inner {
 
 #[derive(Clone)]
 pub struct SharedRouteTable {
+    config: Arc<SharedConfig>,
+
     inner: Arc<RwLock<Inner>>,
     tx: mpsc::UnboundedSender<Command>,
-    receive_headers: Vec<String>,
 }
 
 impl Default for SharedRouteTable {
     fn default() -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
         let shared_route_table = Self {
+            config: Arc::new(SharedConfig::default()),
             inner: Arc::new(RwLock::new(Inner {
                 schema: None,
                 route_table: None,
             })),
             tx,
-            receive_headers: vec![],
         };
         tokio::spawn({
             let shared_route_table = shared_route_table.clone();
@@ -127,8 +137,8 @@ impl SharedRouteTable {
         self.tx.send(Command::Change(route_table)).ok();
     }
 
-    pub fn set_receive_headers(&mut self, receive_headers: Vec<String>) {
-        self.receive_headers = receive_headers;
+    pub fn set_config(&mut self, config: Arc<SharedConfig>) {
+        self.config = config;
     }
 
     pub async fn get(&self) -> Option<(Arc<ComposedSchema>, Arc<ServiceRouteTable>)> {
@@ -151,6 +161,25 @@ impl SharedRouteTable {
                     .unwrap();
             }
         };
+
+        // check if introspection enabled
+        let query = ProcessedQuery::try_new(&document, &request.variables);
+        if let Ok(query) = query {
+            if query.is_introspection() {
+                return HttpResponse::builder()
+                    .status(StatusCode::OK)
+                    .body(
+                        serde_json::to_string(&Response {
+                            data: ConstValue::Null,
+                            errors: vec![ServerError::new("Introspection is disabled.")],
+                            extensions: Default::default(),
+                            headers: Default::default(),
+                        })
+                        .unwrap_or_default(),
+                    )
+                    .unwrap();
+            }
+        }
 
         let (composed_schema, route_table) = match self.get().await {
             Some((composed_schema, route_table)) => (composed_schema, route_table),
@@ -200,7 +229,7 @@ impl SharedRouteTable {
         if let Some(x) = resp.headers.clone() {
             for (k, v) in x
                 .into_iter()
-                .filter(|(k, _v)| self.receive_headers.contains(k))
+                .filter(|(k, _v)| self.config.receive_headers.contains(k))
             {
                 for val in v {
                     header_map.append(

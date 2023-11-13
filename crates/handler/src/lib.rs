@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
 pub use service_route::{ServiceRoute, ServiceRouteTable};
-pub use shared_route_table::SharedRouteTable;
+pub use shared_route_table::{SharedConfig, SharedRouteTable};
 
 pub mod auth;
 mod constants;
@@ -14,3 +14,4 @@ mod shared_route_table;
 mod websocket;
 
 pub mod handler;
+mod query;
