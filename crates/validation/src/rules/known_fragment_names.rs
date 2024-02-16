@@ -1,5 +1,4 @@
-use parser::types::FragmentSpread;
-use parser::Positioned;
+use parser::{types::FragmentSpread, Positioned};
 
 use crate::{Visitor, VisitorContext};
 
@@ -29,7 +28,7 @@ mod tests {
     use super::*;
 
     pub fn factory() -> KnownFragmentNames {
-        KnownFragmentNames::default()
+        KnownFragmentNames
     }
 
     #[test]

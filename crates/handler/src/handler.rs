@@ -1,21 +1,26 @@
-use std::convert::{Infallible, TryInto};
-use std::net::SocketAddr;
-use std::str::FromStr;
-use std::sync::Arc;
+use std::{
+    convert::{Infallible, TryInto},
+    net::SocketAddr,
+    str::FromStr,
+    sync::Arc,
+    time::Instant,
+};
 
 use graphgate_planner::Request;
-use http::header::HeaderName;
-use http::HeaderMap;
-use opentelemetry::trace::{FutureExt, TraceContextExt, Tracer};
-use opentelemetry::{global, Context};
-use warp::http::Response as HttpResponse;
-use warp::ws::Ws;
-use warp::{Filter, Rejection, Reply};
+use http::{header::HeaderName, HeaderMap};
+use opentelemetry::{
+    global,
+    trace::{FutureExt, TraceContextExt, Tracer},
+    Context,
+};
+use warp::{http::Response as HttpResponse, ws::Ws, Filter, Rejection, Reply};
 
-use crate::constants::*;
-use crate::metrics::METRICS;
-use crate::{websocket, SharedRouteTable};
-use std::time::Instant;
+use crate::{
+    auth::{with_auth, Auth},
+    constants::*,
+    metrics::METRICS,
+    websocket, SharedRouteTable,
+};
 
 #[derive(Clone)]
 pub struct HandlerConfig {
@@ -38,21 +43,26 @@ fn do_forward_headers<T: AsRef<str>>(
     }
     if let Some(remote_addr) = remote_addr {
         if let Ok(remote_addr) = remote_addr.to_string().try_into() {
-            new_header_map.append(warp::http::header::FORWARDED, remote_addr);
+            new_header_map.append(http::header::FORWARDED, remote_addr);
         }
     }
     new_header_map
 }
 
 pub fn graphql_request(
+    auth: Arc<Auth>,
     config: HandlerConfig,
 ) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
     warp::post()
+        .and(with_auth(auth))
         .and(warp::body::json())
         .and(warp::header::headers_cloned())
         .and(warp::addr::remote())
         .and_then({
-            move |request: Request, header_map: HeaderMap, remote_addr: Option<SocketAddr>| {
+            move |_auth: (),
+                  request: Request,
+                  header_map: HeaderMap,
+                  remote_addr: Option<SocketAddr>| {
                 let config = config.clone();
                 async move {
                     let tracer = global::tracer("graphql");
@@ -80,8 +90,8 @@ pub fn graphql_request(
 
                     METRICS
                         .query_histogram
-                        .record((Instant::now() - start_time).as_secs_f64());
-                    METRICS.query_counter.add(1);
+                        .record((Instant::now() - start_time).as_secs_f64(), &[]);
+                    METRICS.query_counter.add(1, &[]);
 
                     Ok::<_, Infallible>(resp)
                 }
@@ -90,16 +100,22 @@ pub fn graphql_request(
 }
 
 pub fn graphql_websocket(
+    auth: Arc<Auth>,
     config: HandlerConfig,
 ) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
     warp::ws()
         .and(warp::get())
+        .and(with_auth(auth))
         .and(warp::header::exact_ignore_case("upgrade", "websocket"))
         .and(warp::header::optional::<String>("sec-websocket-protocol"))
         .and(warp::header::headers_cloned())
         .and(warp::addr::remote())
         .map({
-            move |ws: Ws, protocols: Option<String>, header_map, remote_addr: Option<SocketAddr>| {
+            move |ws: Ws,
+                  _auth: (),
+                  protocols: Option<String>,
+                  header_map,
+                  remote_addr: Option<SocketAddr>| {
                 let config = config.clone();
                 let protocol = protocols
                     .and_then(|protocols| {

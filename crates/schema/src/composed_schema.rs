@@ -1,17 +1,17 @@
-use std::collections::HashMap;
-use std::ops::Deref;
+use std::{collections::HashMap, ops::Deref};
 
 use indexmap::{IndexMap, IndexSet};
-use parser::types::{
-    self, BaseType, ConstDirective, DirectiveDefinition, DirectiveLocation, DocumentOperations,
-    EnumType, InputObjectType, InterfaceType, ObjectType, SchemaDefinition, Selection,
-    SelectionSet, ServiceDocument, Type, TypeDefinition, TypeSystemDefinition, UnionType,
+use parser::{
+    types::{
+        self, BaseType, ConstDirective, DirectiveDefinition, DirectiveLocation, DocumentOperations,
+        EnumType, InputObjectType, InterfaceType, ObjectType, SchemaDefinition, Selection,
+        SelectionSet, ServiceDocument, Type, TypeDefinition, TypeSystemDefinition, UnionType,
+    },
+    Positioned, Result,
 };
-use parser::{Positioned, Result};
 use value::{ConstValue, Name};
 
-use crate::type_ext::TypeExt;
-use crate::CombineError;
+use crate::{type_ext::TypeExt, CombineError};
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Deprecation {
@@ -259,11 +259,11 @@ impl ComposedSchema {
                                     input_fields: Default::default(),
                                 });
 
-                            if !is_extend {
-                                meta_type.owner = Some(service.clone());
-                            };
-
+                            let mut type_is_shareable = false;
                             for directive in type_definition.node.directives {
+                                if directive.node.name.node.as_str() == "shareable" {
+                                    type_is_shareable = true;
+                                }
                                 if directive.node.name.node.as_str() == "key" {
                                     if let Some(fields) =
                                         get_argument_str(&directive.node.arguments, "fields")
@@ -283,6 +283,10 @@ impl ComposedSchema {
                                 }
                             }
 
+                            if !is_extend && !type_is_shareable {
+                                meta_type.owner = Some(service.clone());
+                            };
+
                             meta_type
                                 .implements
                                 .extend(implements.into_iter().map(|implement| implement.node));
@@ -297,10 +301,14 @@ impl ComposedSchema {
                                 }
 
                                 if meta_type.fields.contains_key(&field.node.name.node) {
-                                    return Err(CombineError::FieldConflicted {
-                                        type_name: type_definition.node.name.node.to_string(),
-                                        field_name: field.node.name.node.to_string(),
-                                    });
+                                    let is_field_shareable =
+                                        has_directive(&field.node.directives, "shareable");
+                                    if !type_is_shareable && !is_field_shareable {
+                                        return Err(CombineError::FieldConflicted {
+                                            type_name: type_definition.node.name.node.to_string(),
+                                            field_name: field.node.name.node.to_string(),
+                                        });
+                                    }
                                 }
                                 let mut meta_field = convert_field_definition(field.node);
                                 if is_extend {
@@ -322,9 +330,7 @@ impl ComposedSchema {
                                 .insert(meta_type.name.clone(), meta_type);
                         }
                     }
-                    TypeSystemDefinition::Schema(_schema_definition) => {
-                        return Err(CombineError::SchemaIsNotAllowed)
-                    }
+                    TypeSystemDefinition::Schema(_schema_definition) => {}
                     TypeSystemDefinition::Directive(_directive_definition) => {}
                 }
             }

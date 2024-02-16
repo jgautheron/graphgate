@@ -1,6 +1,8 @@
 use graphgate_schema::TypeExt;
-use parser::types::{FragmentDefinition, InlineFragment, TypeCondition, VariableDefinition};
-use parser::{Pos, Positioned};
+use parser::{
+    types::{FragmentDefinition, InlineFragment, TypeCondition, VariableDefinition},
+    Pos, Positioned,
+};
 use value::Name;
 
 use crate::{Visitor, VisitorContext};
@@ -58,7 +60,7 @@ mod tests {
     use super::*;
 
     pub fn factory() -> KnownTypeNames {
-        KnownTypeNames::default()
+        KnownTypeNames
     }
 
     #[test]

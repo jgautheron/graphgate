@@ -1,11 +1,12 @@
 use std::collections::{HashMap, HashSet};
 
-use parser::types::{ExecutableDocument, FragmentDefinition, FragmentSpread, OperationDefinition};
-use parser::{Pos, Positioned};
+use parser::{
+    types::{ExecutableDocument, FragmentDefinition, FragmentSpread, OperationDefinition},
+    Pos, Positioned,
+};
 use value::Name;
 
-use crate::utils::Scope;
-use crate::{Visitor, VisitorContext};
+use crate::{utils::Scope, Visitor, VisitorContext};
 
 #[derive(Default)]
 pub struct NoUnusedFragments<'a> {
@@ -81,7 +82,7 @@ impl<'a> Visitor<'a> for NoUnusedFragments<'a> {
         if let Some(ref scope) = self.current_scope {
             self.spreads
                 .entry(*scope)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(&fragment_spread.node.fragment_name.node);
         }
     }
